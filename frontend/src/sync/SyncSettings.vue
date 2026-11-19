@@ -63,7 +63,7 @@ import { showRawSyncError } from '../android-preview/sync-status.js'
 const { t, locale } = useI18n()
 const local = inject('localSync'), revision = inject('previewRevision'), backgroundCheck = inject('backgroundCheck', null)
 const status = computed(() => { revision.value; return local?.status })
-const server = ref(status.value?.link?.server || ''), username = ref(status.value?.link?.username || ''), password = ref(''), otp = ref('')
+const server = ref(status.value?.link?.server || (import.meta.env.VITE_WORKER_WEB ? location.origin : '')), username = ref(status.value?.link?.username || ''), password = ref(''), otp = ref('')
 const candidate = ref(null), registration = ref(''), message = ref(''), error = ref(false), busy = ref(false), errors = ref({})
 const form = ref(null), errorSummary = ref(null), review = ref(null)
 function focusField(field) { form.value?.querySelector('#sync-' + field)?.focus() }

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:worker": "vite build --config vite.worker.config.js",
     "build:android": "node scripts/build-android.mjs && cap sync android",
     "dev": "vite",
     "preview:android": "vite --config vite.android-preview.config.js",

@@ -1,3 +1,5 @@
+**Cloudflare Workers + D1 个人版** · [部署、通知配置和原版安卓 APK 验收](cloudflare/README.md)
+
 <div align="center">
 
 # 省心订阅 EasySub

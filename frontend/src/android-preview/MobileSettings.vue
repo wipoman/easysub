@@ -24,6 +24,10 @@
       <label>{{ text("摘要星期") }}<select v-model.number="prefs.notify_settings.digest_weekday"><option v-for="(d,i) in ['mon','tue','wed','thu','fri','sat','sun']" :value="i" :key="i">{{ t('wk.' + d) }}</option></select></label>
       <ReminderPermission /><button class="btn">{{ text("保存提醒设置") }}</button>
     </form>
+    <section v-else-if="section === 'channels' && workerWeb" class="card">
+      <h2>Telegram 和邮件提醒</h2>
+      <p>在 Cloudflare Worker 的「变量和机密」中配置 Telegram Bot 或 Resend 邮件。每天北京时间 09:00 按各订阅的提前提醒天数发送。</p>
+    </section>
     <NotifyChannels v-else-if="section === 'channels'" />
     <template v-else-if="['categories','payment-methods','bundles','currencies'].includes(section)">
       <p class="muted">{{ text("删除分类或支付方式会解除订阅关联，删除捆绑包不会删除订阅；在用币种不能删除。") }}</p>
@@ -64,6 +68,7 @@
   </div>
 </template>
 <script setup>
+const workerWeb = import.meta.env.VITE_WORKER_WEB
 import { computed, inject, nextTick, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
