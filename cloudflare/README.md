@@ -2,7 +2,21 @@
 
 一个 Worker、一个 D1 数据库，一个私人账号。电脑使用项目已有的本地优先 Vue 界面，手机使用作者发布的 EasySub Android 0.3.0 Alpha APK。两端都通过 HTTPS 同步。浏览器首次打开会进入「账号与同步」，连接并确认合并后，在线页面约每 15 秒自动同步一次，也可点「立即同步」。
 
-## 部署
+## 通过 Cloudflare 网页部署
+
+在 D1 创建数据库 `easysub`，将 Database ID 填入本目录 `wrangler.jsonc` 的 `d1_databases[0].database_id`，保留绑定名 `DB`。在 Workers 和 Pages 中创建或打开 `easysub-worker`，连接此仓库并填写以下构建设置。
+
+| 设置 | 值 |
+| --- | --- |
+| 生产分支 | `cloudflare-workers` |
+| 根目录 | `cloudflare` |
+| 构建命令 | `npm run build` |
+| 部署命令 | `npx wrangler d1 migrations apply DB --remote && npx wrangler deploy` |
+| 构建变量 | `NODE_VERSION=24` |
+
+保存后向生产分支提交一次更改，在 Worker 的「部署」中查看该提交的构建日志。首次部署成功后，在「设置 → 变量和机密」的生产环境添加 `ADMIN_USERNAME`、`ADMIN_PASSWORD` 和 `TOKEN_SECRET`（随机生成，至少 32 个字符），保存并部署参数后登录。Telegram 和邮件可同时配置或稍后启用，参数见下文。
+
+## 通过命令行部署
 
 准备 Node.js 24 和 Cloudflare 账号。从工作目录执行以下命令。已下载源码的用户可直接进入其中的 cloudflare 目录，从 npm ci 开始。Windows PowerShell 也可逐行执行。
 
