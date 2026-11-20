@@ -35,7 +35,7 @@
         <form v-if="step === 'form'" novalidate @submit.prevent="submit">
           <div class="seg full">
             <button type="button" :class="{ on: mode === 'login' }" :aria-pressed="mode === 'login'" @click="mode = 'login'">{{ t('auth.login') }}</button>
-            <button type="button" :class="{ on: mode === 'register' }" :aria-pressed="mode === 'register'" @click="mode = 'register'">{{ t('auth.register') }}</button>
+            <button v-if="!workerWeb" type="button" :class="{ on: mode === 'register' }" :aria-pressed="mode === 'register'" @click="mode = 'register'">{{ t('auth.register') }}</button>
           </div>
 
           <label for="au-user">{{ t('auth.username') }}</label>
@@ -61,7 +61,7 @@
           <button type="submit" class="btn block" :disabled="busy">
             {{ mode === 'login' ? t('auth.loginBtn') : t('auth.registerBtn') }}
           </button>
-          <a v-if="mode === 'login'" href="#" class="back" @click.prevent="step = 'forgot'">{{ t('auth.forgot') }}</a>
+          <a v-if="!workerWeb && mode === 'login'" href="#" class="back" @click.prevent="step = 'forgot'">{{ t('auth.forgot') }}</a>
         </form>
 
         <!-- 忘记密码：发码 -->
@@ -141,8 +141,9 @@ async function resendCode() {
   catch (e) { error.value = e.response?.data?.detail || 'Error' }
 }
 
+const workerWeb = import.meta.env.VITE_WORKER_WEB
 const step = ref('form')      // form | verify | pending | forgot | reset
-const mode = ref(useRoute().query.mode === 'register' ? 'register' : 'login')
+const mode = ref(!workerWeb && useRoute().query.mode === 'register' ? 'register' : 'login')
 const username = ref('')
 const email = ref('')
 const password = ref('')

@@ -1,3 +1,4 @@
+import { build } from 'esbuild'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -9,14 +10,8 @@ import { remind } from './reminders.js'
 
 test('original web/Android sync clients, lost response replay, and renewal delivery', async (t) => {
   const options = {
-    modulesRoot: '..',
-    modules: [
-      'worker.js',
-      'auth.js',
-      'sync.js',
-      'reminders.js',
-      '../frontend/src/android-preview/reminder-schedule.js',
-    ].map((path) => ({ type: 'ESModule', path })),
+    modules: true,
+    script: (await build({ entryPoints: ['worker.js'], bundle: true, write: false, format: 'esm', target: 'es2022' })).outputFiles[0].text,
     compatibilityDate: '2026-06-01',
     d1Databases: ['DB'],
     ratelimits: {
@@ -72,23 +67,16 @@ test('original web/Android sync clients, lost response replay, and renewal deliv
   }
   const web = await client(),
     phone = await client()
-  const created = await web.local.request('post', '/api/subscriptions', {
-    name: 'VPS',
-    next_renewal_date: '2026-11-22',
-    remind_days_before: '1,0',
+  const api = createTransport(base, web.snapshot().tokens, (url, init) => mf.dispatchFetch(url, init))
+  const created = await api.request('/api/subscriptions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'VPS', next_renewal_date: '2026-11-22', remind_days_before: '1,0' }),
   })
-  await web.local.sync()
   await phone.local.sync()
   const previous = phone.snapshot()
-  await web.local.request(
-    'post',
-    '/api/subscriptions/' + created.id + '/renew',
-    { mode: 'due' },
-  )
-  await web.local.sync()
-  const api = createTransport(base, previous.tokens, (url, init) =>
-    mf.dispatchFetch(url, init),
-  )
+  await api.request('/api/subscriptions/' + created.id + '/renew', {
+    method: 'POST', body: JSON.stringify({ mode: 'due' }),
+  })
   const caps = await api.capabilities()
   assert.equal(caps.epoch, previous.epoch)
   assert.ok(caps.cursor > previous.cursor)
@@ -107,6 +95,10 @@ test('original web/Android sync clients, lost response replay, and renewal deliv
   await phone.local.sync()
   await phone.local.sync()
   await web.local.sync()
+  const webRows = await api.request('/api/subscriptions')
+  assert.equal(webRows.length, 1)
+  assert.equal(webRows[0].id, created.id)
+  assert.equal(webRows[0].name, 'VPS offline')
   assert.equal(web.store.state.subscriptions.length, 1)
   assert.equal(web.store.state.subscriptions[0].name, 'VPS offline')
   assert.equal((await api.capabilities()).cursor, afterWrite.cursor)

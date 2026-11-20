@@ -3,5 +3,5 @@ import preview from './vite.android-preview.config.js'
 export default {
   ...preview,
   define: { 'import.meta.env.VITE_WORKER_WEB': 'true' },
-  build: { ...preview.build, rollupOptions: { input: 'android-app.html' } },
+  build: { ...preview.build, rollupOptions: { input: ['index.html', 'android-app.html'] } },
 }

@@ -1,3 +1,4 @@
+import { desktop } from './desktop.js'
 import { hash, tokens, valid } from './auth.js'
 import { capabilities, changes, push, Failure } from './sync.js'
 import { remind } from './reminders.js'
@@ -31,9 +32,12 @@ async function icon(db, id) {
   const source = record && JSON.parse(record.data).icon
   if (!source?.startsWith('/static/icons/'))
     throw new Failure(404, '图标不存在')
+  return imageResponse(db, source.slice(14))
+}
+async function imageResponse(db, imageId) {
   const rows = await db
     .prepare('SELECT mime,bytes FROM images WHERE id=? ORDER BY part')
-    .bind(source.slice(14))
+    .bind(imageId)
     .all()
   if (!rows.results.length) throw new Failure(404, '图标不存在')
   return new Response(
@@ -78,6 +82,7 @@ async function api(req, env, url) {
   )
     throw new Failure(401, '请登录')
   if (req.method === 'GET') {
+    if (/^\/api\/web-icons\/[a-f0-9-]{36}$/.test(path)) return imageResponse(env.DB, path.split('/').pop())
     if (path === '/api/sync/v1/capabilities')
       return capabilities(env.DB, env.ADMIN_USERNAME)
     if (path === '/api/sync/v1/changes')
@@ -89,16 +94,13 @@ async function api(req, env, url) {
     if (path === '/api/sync/v1/push') return push(env.DB, await req.json())
     if (path === '/api/icons/upload') return upload(req, env.DB)
   }
-  throw new Failure(404, '接口不存在')
+  return desktop(req, env, url)
 }
 export default {
   async fetch(req, env) {
     const url = new URL(req.url)
-    if (url.pathname === '/' || url.pathname === '/login')
-      return Response.redirect(
-        url.origin + '/android-app.html#/settings/sync',
-        302,
-      )
+    if (['/', '/login', '/dashboard', '/subscriptions', '/calendar', '/reports'].includes(url.pathname))
+      return env.ASSETS.fetch(new Request(new URL('/index.html', url), req))
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req)
     const origin = req.headers.get('Origin')
     const headers = {

@@ -13,7 +13,7 @@ applyTheme(localStorage.getItem('theme') || 'light')
 createApp(App).use(createPinia()).use(router).use(i18n).mount('#app')
 
 // 注册 Service Worker（PWA：可安装到主屏、离线打开外壳）
-if ('serviceWorker' in navigator) {
+if (!import.meta.env.VITE_WORKER_WEB && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => { /* ignore */ })
   })

@@ -45,7 +45,8 @@ async function checkConfigured() {
 }
 
 router.beforeEach(async (to) => {
-  const isConfigured = await checkConfigured()
+  if (import.meta.env.VITE_WORKER_WEB && !['/', '/login', '/dashboard', '/subscriptions', '/calendar', '/reports'].includes(to.path)) return '/dashboard'
+  const isConfigured = import.meta.env.VITE_WORKER_WEB || await checkConfigured()
 
   // 未配置数据库：强制进入安装向导
   if (!isConfigured) {

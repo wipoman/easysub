@@ -1,6 +1,6 @@
 <template>
   <span class="sub-icon" :style="{ '--sz': size + 'px' }" aria-hidden="true">
-    <img v-if="isImg(icon)" :src="icon" alt="" loading="lazy" decoding="async" @error="broken = true" v-show="!broken" />
+    <img v-if="isImg(icon)" :src="imageSource" alt="" loading="lazy" decoding="async" @error="broken = true" v-show="!broken" />
     <span v-if="bitmapSymbol" class="glyph native-glyph" v-html="renderIcon(bitmapSymbol)"></span>
     <span v-else-if="!isImg(icon) && icon" class="glyph">{{ icon }}</span>
     <span v-else-if="!isImg(icon) || broken" class="initial">{{ initial }}</span>
@@ -9,6 +9,7 @@
 
 <script setup>
 import { computed, inject, ref, watch } from 'vue'
+import api from '../api'
 import { isImg } from '../lifeline'
 import { icon as renderIcon } from '../icons.js'
 import { categoryIconName } from '../android-preview/bitmap-renderer.js'
@@ -18,7 +19,21 @@ const props = defineProps({ icon: String, name: String, size: { type: Number, de
 const preview = inject('preview', null)
 const bitmapSymbol = computed(() => preview ? categoryIconName(props.icon) : null)
 const broken = ref(false)
-watch(() => props.icon, () => { broken.value = false })
+const imageSource = ref(null)
+watch(() => props.icon, async (value, _, onCleanup) => {
+  broken.value = false
+  if (!import.meta.env.VITE_WORKER_WEB || !value?.startsWith('/static/icons/')) {
+    imageSource.value = value
+    return
+  }
+  imageSource.value = null
+  let active = true, url
+  onCleanup(() => { active = false; if (url) URL.revokeObjectURL(url) })
+  try {
+    const { data } = await api.get('/api/web-icons/' + value.slice(14), { responseType: 'blob' })
+    if (active) imageSource.value = url = URL.createObjectURL(data)
+  } catch { if (active) broken.value = true }
+}, { immediate: true })
 const initial = computed(() => (props.name || '?').trim().charAt(0).toUpperCase())
 </script>
 

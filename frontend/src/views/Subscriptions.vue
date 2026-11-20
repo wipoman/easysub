@@ -250,8 +250,8 @@
             <summary>{{ t('sub.icon') }} — {{ t('sub.iconLibrary') }} / URL / {{ t('sub.uploadIcon') }}</summary>
             <input v-model="form.icon" :aria-label="t('sub.icon')" placeholder="emoji / /static/... / https://..." style="margin:8px 0" />
             <div class="row" style="margin-bottom:8px">
-              <input v-model="iconUrl" :aria-label="t('sub.iconUrl')" :placeholder="t('sub.iconUrl')" style="flex:1" />
-              <button class="btn ghost sm" @click="importIconUrl">{{ t('sub.iconUrlImport') }}</button>
+              <input v-if="!workerWeb" v-model="iconUrl" :aria-label="t('sub.iconUrl')" :placeholder="t('sub.iconUrl')" style="flex:1" />
+              <button v-if="!workerWeb" class="btn ghost sm" @click="importIconUrl">{{ t('sub.iconUrlImport') }}</button>
               <label class="btn ghost sm" style="width:auto">{{ t('sub.uploadIcon') }}
                 <input type="file" accept="image/*" hidden @change="uploadIcon" />
               </label>
@@ -478,6 +478,7 @@ const formErrEl = ref(null)
 const saving = ref(false)
 const form = ref({})
 const newMember = ref('')
+const workerWeb = import.meta.env.VITE_WORKER_WEB
 const iconUrl = ref('')
 const bundleMode = ref('none')
 const newBundleName = ref('')
