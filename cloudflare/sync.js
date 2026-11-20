@@ -121,11 +121,11 @@ async function apply(db, device, op) {
     return { op_id: op.op_id, status: 'rejected', code: 'INVALID_DATA' }
   const insert = db
     .prepare(
-      `INSERT INTO changes(id,kind,version,deleted,data,device,op)
+      `INSERT INTO changes(id,kind,version,deleted,data,device,op,created_at)
     SELECT ?1,?2,?3+1,?4,
       CASE WHEN ?2='subscriptions' AND json_extract(?5,'$.cycle') IN ('month','year')
         AND json_type(?5,'$.billing_anchor_day') IS NULL AND prior.anchor IS NOT NULL
-        THEN json_set(?5,'$.billing_anchor_day',prior.anchor) ELSE ?5 END,?6,?7
+        THEN json_set(?5,'$.billing_anchor_day',prior.anchor) ELSE ?5 END,?6,?7,strftime('%Y-%m-%dT%H:%M:%fZ','now')
     FROM (SELECT (SELECT json_extract(data,'$.billing_anchor_day') FROM changes
                   WHERE id=?1 AND version=?3) AS anchor) AS prior
     WHERE NOT EXISTS(SELECT 1 FROM receipts WHERE device=?6 AND op=?7)

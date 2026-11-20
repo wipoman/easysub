@@ -123,7 +123,7 @@ const navItems = computed(() => {
     { to: '/settings', key: 'settings', label: 'nav.settings' }
   ]
   if (auth.user?.is_admin) base.push({ to: '/users', key: 'users', label: 'nav.users' })
-  return import.meta.env.VITE_WORKER_WEB ? base.filter(item => item.tab) : base
+  return base
 })
 const tabItems = computed(() => navItems.value.filter((x) => x.tab))
 const moreItems = computed(() => navItems.value.filter((x) => !x.tab))

@@ -13,9 +13,9 @@ const routes = [
       { path: 'subscriptions', component: () => import('../views/Subscriptions.vue') },
       { path: 'calendar', component: () => import('../views/Calendar.vue') },
       { path: 'reports', component: () => import('../views/Reports.vue') },
-      { path: 'notifications', component: () => import('../views/Notifications.vue') },
+      { path: 'notifications', component: import.meta.env.VITE_WORKER_WEB ? () => import('../views/WorkerNotifications.vue') : () => import('../views/Notifications.vue') },
       { path: 'logs', component: () => import('../views/Logs.vue') },
-      { path: 'settings', component: () => import('../views/Settings.vue') },
+      { path: 'settings', component: import.meta.env.VITE_WORKER_WEB ? () => import('../views/WorkerSettings.vue') : () => import('../views/Settings.vue') },
       { path: 'users', component: () => import('../views/Users.vue') }
     ]
   }
@@ -45,7 +45,7 @@ async function checkConfigured() {
 }
 
 router.beforeEach(async (to) => {
-  if (import.meta.env.VITE_WORKER_WEB && !['/', '/login', '/dashboard', '/subscriptions', '/calendar', '/reports'].includes(to.path)) return '/dashboard'
+  if (import.meta.env.VITE_WORKER_WEB && !['/', '/login', '/dashboard', '/subscriptions', '/calendar', '/reports', '/notifications', '/logs', '/settings'].includes(to.path)) return '/dashboard'
   const isConfigured = import.meta.env.VITE_WORKER_WEB || await checkConfigured()
 
   // 未配置数据库：强制进入安装向导

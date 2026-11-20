@@ -99,7 +99,7 @@ async function api(req, env, url) {
 export default {
   async fetch(req, env) {
     const url = new URL(req.url)
-    if (['/', '/login', '/dashboard', '/subscriptions', '/calendar', '/reports'].includes(url.pathname))
+    if (['/', '/login', '/dashboard', '/subscriptions', '/calendar', '/reports', '/notifications', '/logs', '/settings'].includes(url.pathname))
       return env.ASSETS.fetch(new Request(new URL('/index.html', url), req))
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req)
     const origin = req.headers.get('Origin')

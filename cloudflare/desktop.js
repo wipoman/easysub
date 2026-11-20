@@ -1,4 +1,5 @@
 import { createPreviewStore } from '../frontend/src/android-preview/store.js'
+import { adminPage } from './admin.js'
 import { Failure } from './sync.js'
 
 const collections = { subscriptions: 'subscriptions', categories: 'categories', 'payment-methods': 'payment_methods', currencies: 'currencies', bundles: 'bundles' }
@@ -30,6 +31,7 @@ async function readDesktop(db, username) {
     if (row.kind === 'currencies' && data.rate_to_base > 0) state.rates[data.code] = data.rate_to_base
     state[field].push({ ...data, id: row.web_id })
   }
+  Object.assign(state.user, await db.prepare('SELECT theme,locale FROM desktop_appearance WHERE id=1').first())
   state.user.username = username
   state.user.category_order = (state.user.category_order || []).map(id => byUuid.get(id)).filter(Boolean)
   store.loadState(state)
@@ -38,6 +40,7 @@ async function readDesktop(db, username) {
 
 export async function desktop(req, env, url) {
   const method = req.method.toLowerCase(), path = url.pathname
+  if (['/api/logs', '/api/worker/notifications', '/api/worker/scan', '/api/worker/settings'].includes(path)) return adminPage(req, env, url)
   if (method === 'get' && path === '/api/system/version-check') return { update_available: false }
   const read = /^\/api\/(auth\/me|dashboard|subscriptions(?:\/export\.csv)?|categories|payment-methods|currencies|bundles|icons\/library|reports\/[\w.-]+)$/
   const write = { post: /^\/api\/(subscriptions(?:\/(reorder|import-csv|\d+\/renew))?|bundles)$/, put: /^\/api\/subscriptions\/\d+$/, delete: /^\/api\/subscriptions\/\d+$/ }
@@ -76,7 +79,7 @@ export async function desktop(req, env, url) {
     if (kind === 'subscriptions' && !deleted)
       for (const key of references) data[key] = uuids.get(data[key]) ?? null
     // UNIQUE(id,version) aborts the whole D1 batch on a concurrent write.
-    return env.DB.prepare('INSERT INTO changes(id,kind,version,deleted,data,device) VALUES(?,?,?,?,?,?) RETURNING seq')
+    return env.DB.prepare('INSERT INTO changes(id,kind,version,deleted,data,device,created_at) VALUES(?,?,?,?,?,?,strftime(\'%Y-%m-%dT%H:%M:%fZ\',\'now\')) RETURNING seq')
       .bind(uuids.get(row.id), kind, (prior?.version || 0) + 1, Number(!!deleted), JSON.stringify(data), 'desktop')
   })
   try {

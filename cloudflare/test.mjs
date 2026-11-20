@@ -26,7 +26,7 @@ test('original web/Android sync clients, lost response replay, and renewal deliv
   const mf = new runtime.Miniflare(runtime.convertV4MiniflareOptions(options))
   t.after(() => mf.dispose())
   const db = await mf.getD1Database('DB')
-  for (const path of ['0001_sync.sql', '0002_defaults.sql']) {
+  for (const path of ['0001_sync.sql', '0002_defaults.sql', '0003_desktop_admin.sql']) {
     const sql = await readFile('migrations/' + path, 'utf8')
     await db.batch(
       sql
@@ -151,4 +151,21 @@ test('original web/Android sync clients, lost response replay, and renewal deliv
     calls.find((c) => c.body.text).body.text,
     /VPS offline.*2026-12-22/,
   )
+  const status = await api.request('/api/worker/notifications')
+  assert.equal(status.deliveries.length, 2)
+  assert.ok(status.deliveries.every(row => row.state === 'sent'))
+  const prefs = await api.request('/api/worker/settings')
+  const updated = await api.request('/api/worker/settings', {
+    method: 'PUT', body: JSON.stringify({ ...prefs, theme: 'forest', locale: 'en', monthly_budget: 500 }),
+  })
+  assert.equal(updated.monthly_budget, 500)
+  assert.equal((await api.request('/api/auth/me')).theme, 'forest')
+  await phone.local.sync()
+  assert.equal(phone.store.state.user.monthly_budget, 500)
+  const log = await api.request('/api/logs')
+  assert.ok(log.some(row => row.action === 'subscriptions.update' && row.created_at))
+  assert.deepEqual(await api.request('/api/logs?after=' + log.at(-1).id), [])
+  for (const path of ['/api/worker/settings', '/api/worker/notifications', '/api/logs'])
+    assert.equal((await mf.dispatchFetch(base + path)).status, 401)
+
 })
