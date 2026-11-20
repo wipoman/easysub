@@ -107,14 +107,14 @@
             <b>{{ t('sec.twofa') }}</b>
             <span class="tag" :class="{ ok: auth.user?.totp_enabled }">{{ auth.user?.totp_enabled ? t('sec.on') : t('sec.off') }}</span>
           </div>
-          <button v-if="!auth.user?.totp_enabled && !twofa.qr" class="btn ghost sm" @click="twofaSetup">{{ t('sec.enable') }}</button>
+          <button v-if="!auth.user?.totp_enabled && !twofa.secret" class="btn ghost sm" @click="twofaSetup">{{ t('sec.enable') }}</button>
           <button v-else-if="auth.user?.totp_enabled" class="btn ghost sm" @click="twofaDisable">{{ t('sec.disable') }}</button>
         </div>
-        <div v-if="twofa.qr && !auth.user?.totp_enabled" class="twofa-box">
-          <img :src="twofa.qr" class="qr" alt="QR" />
+        <div v-if="twofa.secret && !auth.user?.totp_enabled" class="twofa-box">
+          <img v-if="twofa.qr" :src="twofa.qr" class="qr" alt="QR" />
           <div class="twofa-r">
-            <p class="muted hint top">{{ t('sec.scanTip') }}</p>
-            <code class="secret">{{ twofa.secret }}</code>
+            <p v-if="!workerWeb" class="muted hint top">{{ t('sec.scanTip') }}</p>
+            <p v-if="workerWeb">在验证器中选择手动输入密钥，类型选「基于时间」。</p><code class="secret">{{ twofa.secret }}</code>
             <div class="inline-form">
               <input v-model="twofa.code" :placeholder="t('auth.otpPh')" maxlength="6" inputmode="numeric" class="otp" />
               <button class="btn sm" @click="twofaEnable">{{ t('sec.confirmEnable') }}</button>
@@ -272,7 +272,7 @@
         <div v-if="upd && upd.update_available" class="upd-box">
           <p class="upd-how">{{ t('upd.howto') }}
             <a :href="upd.release_url" target="_blank" rel="noopener">{{ t('upd.view') }}</a></p>
-          <code class="code">docker compose -f docker-compose.hub.yml pull &amp;&amp; docker compose -f docker-compose.hub.yml up -d</code>
+          <p v-if="workerWeb">通过 GitHub 的 cloudflare-workers 分支构建部署。</p><code v-else class="code">docker compose -f docker-compose.hub.yml pull &amp;&amp; docker compose -f docker-compose.hub.yml up -d</code>
           <p class="muted hint">{{ t('upd.backupTip') }}</p>
         </div>
       </section>
@@ -311,6 +311,7 @@ const { t, te, locale } = useI18n()
 const auth = useAuth()
 
 // 色板预览：bg = 该主题底色，c = 该主题操作色（与 styles/theme.css 对应）
+const workerWeb=import.meta.env.VITE_WORKER_WEB
 const themes = [
   { v: 'light', k: 'Light', bg: '#f6f7f5', c: '#1b1f24' },
   { v: 'dark', k: 'Dark', bg: '#171a1e', c: '#eceef0' },
@@ -580,6 +581,12 @@ async function runAutoBackup() {
 }
 
 onMounted(async () => {
+  if(workerWeb) {
+    const me=await auth.fetchMe()
+    Object.assign(acc,{username:me.username,email:me.email})
+    Object.assign(prefs,me.notify_settings,{monthly_budget:me.monthly_budget})
+    theme.value=me.theme; baseCurrency.value=me.base_currency
+  }
   currencies.value = (await api.get('/api/currencies')).data
   sys.value = (await api.get('/api/system/info')).data
   loadRates()

@@ -18,5 +18,5 @@
   }
 ],
   "ratelimits": [{ "name": "LOGIN_LIMIT", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } }],
-  "triggers": { "crons": ["0,15,30,45 1 * * *"] }
+  "triggers": { "crons": ["*/15 * * * *"] }
 }

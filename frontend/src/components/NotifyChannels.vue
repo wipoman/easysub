@@ -8,7 +8,7 @@
         <h3><span class="hi" v-html="icon('notifyCfg')"></span>{{ t('notifyCfg.title') }}</h3>
         <p class="muted nc-sub">Telegram / 飞书 / QQ / Bark / Email / Pushplus / Webhook</p>
       </div>
-      <button class="btn" :disabled="saving" @click="save"><span class="bi" v-html="icon('check')"></span>{{ t('notifyCfg.save') }}</button>
+      <button class="btn" :disabled="saving || !loaded" @click="save"><span class="bi" v-html="icon('check')"></span>{{ t('notifyCfg.save') }}</button>
     </div>
 
     <div class="tiles" role="tablist">
@@ -33,10 +33,10 @@
         <div class="f"><label :for="`${fieldId}-cfg-telegram-bot_token`">BOT TOKEN</label><input :type="androidPreview && !showSecrets ? 'password' : 'text'" :id="`${fieldId}-cfg-telegram-bot_token`" v-model="cfg.telegram.bot_token" placeholder="123456:ABC-..." /></div>
         <div class="two">
           <div class="f"><label :for="`${fieldId}-cfg-telegram-chat_id`">CHAT ID</label><input :id="`${fieldId}-cfg-telegram-chat_id`" v-model="cfg.telegram.chat_id" placeholder="-100xxxx / 数字" /></div>
-          <div class="f"><label :for="`${fieldId}-cfg-telegram-admin_id`">ADMIN ID</label><input :id="`${fieldId}-cfg-telegram-admin_id`" v-model="cfg.telegram.admin_id" /></div>
+          <div v-if="!workerWeb" class="f"><label :for="`${fieldId}-cfg-telegram-admin_id`">ADMIN ID</label><input :id="`${fieldId}-cfg-telegram-admin_id`" v-model="cfg.telegram.admin_id" /></div>
         </div>
         <div class="f"><label :for="`${fieldId}-cfg-telegram-api_base`">{{ t('notifyCfg.tgApiBase') }}</label><input :id="`${fieldId}-cfg-telegram-api_base`" v-model="cfg.telegram.api_base" placeholder="api.telegram.org" /></div>
-        <div class="f"><label :for="`${fieldId}-cfg-telegram-proxy`">{{ t('notifyCfg.httpProxy') }}</label><input :id="`${fieldId}-cfg-telegram-proxy`" v-model="cfg.telegram.proxy" placeholder="http://127.0.0.1:7890" /></div>
+        <div v-if="!workerWeb" class="f"><label :for="`${fieldId}-cfg-telegram-proxy`">{{ t('notifyCfg.httpProxy') }}</label><input :id="`${fieldId}-cfg-telegram-proxy`" v-model="cfg.telegram.proxy" placeholder="http://127.0.0.1:7890" /></div>
         <div class="row">
           <button class="btn ghost sm" :disabled="!!androidPreview" @click="tgAction('me')">{{ t('settings.checkBot') }}</button>
           <button class="btn ghost sm" :disabled="!!androidPreview" @click="tgAction('updates')">{{ t('settings.getUpdates') }}</button>
@@ -90,14 +90,14 @@
 
       <!-- Email -->
       <div v-else-if="tab === 'email'" class="fields">
-        <div class="three">
+        <div v-if="!workerWeb" class="three">
           <div class="f"><label :for="`${fieldId}-cfg-email-host`">SMTP {{ t('notifyCfg.host') }}</label><input :id="`${fieldId}-cfg-email-host`" v-model="cfg.email.host" placeholder="smtp.example.com" /></div>
           <div class="f"><label :for="`${fieldId}-cfg-email-port`">SMTP {{ t('notifyCfg.port') }}</label><input :id="`${fieldId}-cfg-email-port`" v-model.number="cfg.email.port" type="number" /></div>
           <div class="f sw"><label>SSL/TLS</label><label class="switch"><input type="checkbox" v-model="cfg.email.ssl" aria-label="SSL/TLS" /><span class="track"></span></label></div>
         </div>
         <div class="two">
-          <div class="f"><label :for="`${fieldId}-cfg-email-username`">{{ t('notifyCfg.username') }}</label><input :id="`${fieldId}-cfg-email-username`" v-model="cfg.email.username" placeholder="邮箱账号" /></div>
-          <div class="f"><label :for="`${fieldId}-cfg-email-password`">{{ t('notifyCfg.password') }}</label><input :type="androidPreview && showSecrets ? 'text' : 'password'" :id="`${fieldId}-cfg-email-password`" v-model="cfg.email.password" placeholder="密码或授权码" /></div>
+          <div v-if="!workerWeb" class="f"><label :for="`${fieldId}-cfg-email-username`">{{ t('notifyCfg.username') }}</label><input :id="`${fieldId}-cfg-email-username`" v-model="cfg.email.username" placeholder="邮箱账号" /></div>
+          <div class="f"><label :for="`${fieldId}-cfg-email-password`">{{ workerWeb ? 'Resend API Key' : t('notifyCfg.password') }}</label><input :type="androidPreview && showSecrets ? 'text' : 'password'" :id="`${fieldId}-cfg-email-password`" v-model="cfg.email.password" placeholder="密码或授权码" /></div>
         </div>
         <div class="f"><label :for="`${fieldId}-cfg-email-from`">{{ t('notifyCfg.from') }}</label><input :id="`${fieldId}-cfg-email-from`" v-model="cfg.email.from" placeholder="noreply@example.com" /></div>
         <div class="f"><label :for="`${fieldId}-cfg-email-to`">{{ t('notifyCfg.to') }}</label><input :id="`${fieldId}-cfg-email-to`" v-model="cfg.email.to" placeholder="多个收件人用英文逗号分隔" /></div>
@@ -296,6 +296,7 @@ import api from '../api'
 import { icon } from '../icons'
 
 const { t } = useI18n()
+const workerWeb=import.meta.env.VITE_WORKER_WEB && !inject('preview',null)
 const tab = ref('telegram')
 const loaded = ref(false)
 const saving = ref(false)
@@ -381,7 +382,7 @@ async function load() {
       if (!Array.isArray(base[k].urls) && 'urls' in base[k]) base[k].urls = []
       if (k === 'webhook' && !Array.isArray(base[k].headers)) base[k].headers = []
     }
-  } catch { /* 用默认值 */ }
+  } catch { if(workerWeb) { flash(false,'读取通知配置失败，请刷新后重试'); return } }
   cfg.value = base
   savedConfig.value = JSON.stringify(base)
   loaded.value = true

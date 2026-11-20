@@ -1,5 +1,6 @@
 // One digest per channel and Beijing calendar day. Persist the original text for
 // stable retries (including Resend's idempotency key) if a provider times out.
+import { config,deliver } from './channels.js'
 import { parseReminderDays } from '../frontend/src/android-preview/reminder-schedule.js'
 export async function remind(env, time, send = fetch) {
   const day = new Date(time + 8 * 3600000).toISOString().slice(0, 10)
@@ -24,10 +25,19 @@ export async function remind(env, time, send = fetch) {
           (days === 0 ? '今天到期' : '还有 ' + days + ' 天'),
       )
   }
-  const channels = []
-  if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) channels.push('telegram')
-  if (env.RESEND_API_KEY && env.EMAIL_FROM && env.EMAIL_TO)
-    channels.push('email')
+  const cfg=await config(env)
+  const channels=Object.keys(cfg).filter(k=>cfg[k]?.enabled)
+  const {data:pref}=await env.DB.prepare("SELECT data FROM current_records WHERE kind='preferences' AND deleted=0").first()
+  const settings=JSON.parse(pref).notify_settings || {}
+  const localTime=new Date(time+8*3600000)
+  const hhmm=localTime.toISOString().slice(11,16)
+  const {quiet_start:start,quiet_end:end}=settings
+  const quiet=start && end && (start<end ? hhmm>=start && hhmm<end : start>end && (hhmm>=start || hhmm<end))
+  if(settings.digest_enabled && (localTime.getUTCDay()+6)%7===settings.digest_weekday) {
+    const upcoming=results.map(r=>JSON.parse(r.data)).filter(s=>s.is_active && s.billing_type==='recurring' && s.next_renewal_date>=day &&
+      (Date.parse(s.next_renewal_date)-Date.parse(day))/86400000<7)
+    lines.push('每周汇总 · 未来七天有 '+upcoming.length+' 项到期')
+  }
   // Bound each message by Telegram's text limit, even with exceptionally long lists.
   const parts = []
   for (const line of lines) {
@@ -52,6 +62,8 @@ export async function remind(env, time, send = fetch) {
     .all()
   const failures = []
   for (const job of jobs.results) {
+    const channel=job.channel.split('-')[0]
+    if(!cfg[channel]?.enabled || quiet && !/今天到期|还有 1 天/.test(job.body)) continue
     const lease = Date.now() + 120000
     const lock = await env.DB.prepare(
       "UPDATE deliveries SET lease=? WHERE day=? AND channel=? AND state!='sent' AND lease<=?",
@@ -60,39 +72,16 @@ export async function remind(env, time, send = fetch) {
       .run()
     if (!lock.meta.changes) continue
     try {
-      const telegram = job.channel.startsWith('telegram-')
-      const url = telegram
-        ? 'https://api.telegram.org/bot' +
-          env.TELEGRAM_BOT_TOKEN +
-          '/sendMessage'
-        : 'https://api.resend.com/emails'
-      const headers = { 'Content-Type': 'application/json' }
-      if (!telegram)
-        Object.assign(headers, {
-          Authorization: 'Bearer ' + env.RESEND_API_KEY,
-          'Idempotency-Key': 'easysub-' + day + '-' + job.channel,
-        })
-      const body = telegram
-        ? { chat_id: env.TELEGRAM_CHAT_ID, text: job.body }
-        : {
-            from: env.EMAIL_FROM,
-            to: [env.EMAIL_TO],
-            subject: 'EasySub 续费提醒 ' + day,
-            text: job.body,
-          }
-      const res = await send(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(12000),
-      })
-      if (!res.ok) throw new Error('HTTP ' + res.status)
+      await deliver(channel,cfg[channel],env,job.body,send,'easysub-'+day+'-'+job.channel)
       await env.DB.prepare(
-        "UPDATE deliveries SET state='sent' WHERE day=? AND channel=? AND lease=?",
+        "UPDATE deliveries SET state='sent',attempted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),error=NULL WHERE day=? AND channel=? AND lease=?",
       )
         .bind(day, job.channel, lease)
         .run()
-    } catch {
+    } catch (error) {
+      const detail=error.detail || '渠道投递失败'
+      await env.DB.prepare("UPDATE deliveries SET attempted_at=?,error=? WHERE day=? AND channel=? AND lease=?")
+        .bind(new Date().toISOString(), detail, day,job.channel,lease).run()
       failures.push(job.channel)
     }
   }

@@ -13,7 +13,7 @@ function hex(bytes) {
 async function key(env) {
   return crypto.subtle.importKey(
     'raw',
-    encoder.encode(env.TOKEN_SECRET),
+    encoder.encode(env.sessionKey || env.TOKEN_SECRET),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign', 'verify'],

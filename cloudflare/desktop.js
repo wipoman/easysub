@@ -1,4 +1,5 @@
 import { createPreviewStore } from '../frontend/src/android-preview/store.js'
+import { passwordOK } from './profile.js'
 import { adminPage } from './admin.js'
 import { Failure } from './sync.js'
 
@@ -34,6 +35,11 @@ async function readDesktop(db, username) {
   Object.assign(state.user, await db.prepare('SELECT theme,locale FROM desktop_appearance WHERE id=1').first())
   state.user.username = username
   state.user.category_order = (state.user.category_order || []).map(id => byUuid.get(id)).filter(Boolean)
+  const cache=await db.prepare('SELECT rates,rate_time,email,otp IS NOT NULL AS twofa FROM profile').first()
+  state.user.email=cache.email
+  state.user.totp_enabled=!!cache.twofa
+  if(cache.rates) Object.assign(state.rates,JSON.parse(cache.rates))
+  state.rates_updated_at=cache.rate_time
   store.loadState(state)
   return { store, byNumber }
 }
@@ -41,28 +47,58 @@ async function readDesktop(db, username) {
 export async function desktop(req, env, url) {
   const method = req.method.toLowerCase(), path = url.pathname
   if (['/api/logs', '/api/worker/notifications', '/api/worker/scan', '/api/worker/settings'].includes(path)) return adminPage(req, env, url)
-  if (method === 'get' && path === '/api/system/version-check') return { update_available: false }
   const read = /^\/api\/(auth\/me|dashboard|subscriptions(?:\/export\.csv)?|categories|payment-methods|currencies|bundles|icons\/library|reports\/[\w.-]+)$/
   const write = { post: /^\/api\/(subscriptions(?:\/(reorder|import-csv|\d+\/renew))?|bundles)$/, put: /^\/api\/subscriptions\/\d+$/, delete: /^\/api\/subscriptions\/\d+$/ }
-  if (!(method === 'get' ? read : write[method])?.test(path)) throw new Failure(404, '接口不存在')
+  const extra = (method==='get' && ['/api/backup/export','/api/currencies/rate-table'].includes(path)) ||
+    (method==='post' && path==='/api/backup/import') || (method==='patch' && path==='/api/me')
+  if (!extra && !(method === 'get' ? read : write[method])?.test(path)) throw new Failure(404, '接口不存在')
   const { store, byNumber } = await readDesktop(env.DB, env.ADMIN_USERNAME)
   const params = Object.fromEntries(url.searchParams)
   if (params.active !== undefined) params.active = params.active === 'true'
   const body = method === 'get' ? {} : await req.json()
   if (method === 'put' && body._version != null && body._version !== byNumber.get(Number(path.split('/').pop()))?.version)
     throw new Failure(409, '此订阅已更新，请刷新后重新编辑')
-  if (method === 'delete' && body.password !== env.ADMIN_PASSWORD) throw new Failure(403, '密码错误')
+  if (method === 'delete' && !await passwordOK(env,body.password)) throw new Failure(403, '密码错误')
+  if(path==='/api/backup/export') {
+    const {subscriptions,categories,payment_methods,bundles,currencies}=store.state
+    return {subscriptions,categories,payment_methods,bundles,currencies}
+  }
+  if(path==='/api/me' && method==='patch') {
+    const allowedThemes=['light','dark','ocean','purple','forest','auto']
+    if(body.theme && !allowedThemes.includes(body.theme) || body.locale && !['en','zh','ru'].includes(body.locale)) throw new Failure(422,'外观设置无效')
+    const jobs=[]
+    if(body.theme || body.locale) jobs.push(env.DB.prepare('UPDATE desktop_appearance SET theme=coalesce(?,theme),locale=coalesce(?,locale) WHERE id=1').bind(body.theme || null,body.locale || null))
+    const patch={}
+    for(const k of ['base_currency','monthly_budget','notify_settings']) if(Object.hasOwn(body,k)) patch[k]=body[k]
+    if(patch.base_currency && !store.state.currencies.some(c=>c.code===patch.base_currency)) throw new Failure(422,'基准货币无效')
+    if(patch.monthly_budget!=null && !(Number.isFinite(patch.monthly_budget) && patch.monthly_budget>=0)) throw new Failure(422,'预算无效')
+    if(Object.keys(patch).length) {
+      const pref=[...byNumber.values()].find(r=>r.kind==='preferences')
+      jobs.push(env.DB.prepare("INSERT INTO changes(id,kind,version,data,device,created_at) VALUES(?,'preferences',?,?,'desktop',?)").bind(pref.id,pref.version+1,JSON.stringify({...JSON.parse(pref.data),...patch}),new Date().toISOString()))
+    }
+    if(jobs.length) await env.DB.batch(jobs)
+    return (await readDesktop(env.DB,env.ADMIN_USERNAME)).store.state.user
+  }
   const original = new Map()
-  for (const kind of ['subscriptions', 'categories', 'bundles'])
+  for (const kind of ['subscriptions', 'categories', 'payment_methods','bundles','currencies'])
     for (const row of store.state[kind]) original.set(row.id, JSON.stringify(row))
   let value
-  try { value = await store.request(method, path, body, params) }
+  try {
+    if(path==='/api/backup/import') {
+      const data={...body.data,currencies:(body.data?.currencies || []).map(({id,...currency})=>currency)}
+      for(const key of ['categories','payment_methods']) data[key]=(data[key] || []).map(item=>store.state[key].find(r=>r.is_system && r.name===item.name) ? {...store.state[key].find(r=>r.is_system && r.name===item.name),id:item.id} : item)
+      value=store.restore(data,body.replace===true)
+      let nextId=Math.max(0,...[...byNumber.keys()],...['subscriptions','bundles','payment_methods','categories'].flatMap(k=>store.state[k].map(r=>r.id)))+1
+      for(const currency of store.state.currencies) if(currency.id==null || !byNumber.has(currency.id) || byNumber.get(currency.id).kind!=='currencies') currency.id=nextId++
+
+    } else value=await store.request(method,path,body,params)
+  }
   catch (error) { throw new Failure(422, error.message) }
   if (method === 'get') return path.endsWith('.csv') ? new Response(value, { headers: { 'Content-Type': 'text/csv;charset=utf-8' } }) : value
 
   const changed = [], uuids = new Map([...byNumber].map(([n, row]) => [n, row.id]))
-  for (const kind of ['categories', 'bundles', 'subscriptions']) {
-    for (const row of store.state[kind]) {
+  for (const kind of ['categories','payment-methods','bundles','currencies','subscriptions']) {
+    for (const row of store.state[collections[kind]]) {
       if (!uuids.has(row.id)) uuids.set(row.id, crypto.randomUUID())
       if (original.get(row.id) !== JSON.stringify(row)) changed.push({ kind, row })
       original.delete(row.id)

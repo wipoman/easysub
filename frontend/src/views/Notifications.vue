@@ -2,15 +2,16 @@
   <div class="notify-page">
     <div class="page-head">
       <h1>{{ t('notify.title') }}</h1>
-      <button class="btn" @click="runScan"><span v-html="icon('send')"></span>{{ t('notify.runScan') }}</button>
+      <button class="btn" :disabled="scanning" @click="runScan"><span v-html="icon('send')"></span>{{ t('notify.runScan') }}</button>
     </div>
 
+    <p v-if="message" role="status">{{ message }}</p>
     <div class="card list-card">
       <div v-if="logs.length" class="n-list">
         <div v-for="l in logs" :key="l.id" class="n-row">
           <div class="n-top">
-            <span class="tag" :class="l.status === 'sent' ? 'ok' : 'late'">
-              {{ l.status === 'sent' ? t('notify.sent') : t('notify.failed') }}
+            <span class="tag" :class="l.status === 'pending' ? 'soon' : l.status === 'sent' ? 'ok' : 'late'">
+              {{ l.status === 'pending' ? '待投递' : l.status === 'sent' ? t('notify.sent') : t('notify.failed') }}
             </span>
             <span v-if="l.channel" class="tag">{{ l.channel }}</span>
             <span class="days">{{ t('notify.daysBefore') }}: <b>{{ l.days_before }}</b></span>
@@ -39,7 +40,13 @@ const logs = ref([])
 function fmt(s) { return s ? new Date(s).toLocaleString() : '' }
 
 async function load() { logs.value = (await api.get('/api/notifications/logs')).data }
-async function runScan() { await api.post('/api/notifications/run-scan'); load() }
+const message=ref(''), scanning=ref(false)
+async function runScan() {
+  scanning.value=true
+  try { await api.post('/api/notifications/run-scan'); message.value='扫描完成' }
+  catch(e) { message.value=e.response?.data?.detail || '扫描失败' }
+  finally { scanning.value=false; await load() }
+}
 
 onMounted(load)
 </script>

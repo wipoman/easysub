@@ -1,3 +1,5 @@
+import { sessionEnv,passwordOK,otpOK,account } from './profile.js'
+import { calendar,settingsApi } from './settings.js'
 import { desktop } from './desktop.js'
 import { hash, tokens, valid } from './auth.js'
 import { capabilities, changes, push, Failure } from './sync.js'
@@ -54,18 +56,16 @@ async function api(req, env, url) {
     !env.TOKEN_SECRET
   )
     throw new Failure(503, '请配置登录账号、密码及至少 32 位 TOKEN_SECRET')
+  if (path.startsWith('/api/calendar/feed/') && req.method==='GET') return calendar(env,path.slice(19).replace(/\.ics$/,''))
+  env=await sessionEnv(env)
   if (req.method === 'POST' && path === '/api/auth/login') {
     const allowed = await env.LOGIN_LIMIT.limit({
       key: req.headers.get('CF-Connecting-IP') || 'local',
     })
     if (!allowed.success) throw new Failure(429, '请稍后重试')
     const form = await req.formData()
-    const incoming = await hash(String(form.get('password')))
-    if (
-      form.get('username') !== env.ADMIN_USERNAME ||
-      incoming !== (await hash(env.ADMIN_PASSWORD))
-    )
-      throw new Failure(401, '用户名或密码错误')
+    if (form.get('username') !== env.ADMIN_USERNAME || !await passwordOK(env,form.get('password'))) throw new Failure(401,'用户名或密码错误')
+    if (env.profile.otp && !await otpOK(env,env.profile.otp,form.get('otp'))) throw new Failure(401,'需要两步验证码 OTP')
     return tokens(env)
   }
   if (req.method === 'POST' && path === '/api/auth/refresh') {
@@ -73,14 +73,14 @@ async function api(req, env, url) {
       throw new Failure(401, '请重新登录')
     return tokens(env)
   }
-  if (
-    !(await valid(
-      req.headers.get('Authorization')?.match(/^Bearer (.+)$/i)?.[1],
-      'access',
-      env,
-    ))
-  )
-    throw new Failure(401, '请登录')
+  const bearer=req.headers.get('Authorization')?.match(/^Bearer (.+)$/i)?.[1]
+  if (!await valid(bearer,'access',env)) {
+    if(!/^es_[0-9a-f]{64}$/.test(bearer || '') || req.method!=='GET' || !['/api/subscriptions','/api/dashboard','/api/categories','/api/bundles','/api/currencies','/api/payment-methods'].includes(path)) throw new Failure(401,'请登录')
+    const used=await env.DB.prepare('UPDATE api_keys SET last_used_at=? WHERE digest=?').bind(new Date().toISOString(),await hash(bearer)).run()
+    if(!used.meta.changes) throw new Failure(401,'无效 Token')
+  }
+  if(path.startsWith('/api/me/')) return account(req,env,path)
+  if(path.startsWith('/api/notifications/') || path.startsWith('/api/calendar/') || path.startsWith('/api/system/') || path==='/api/currencies/rates/refresh') return settingsApi(req,env,url)
   if (req.method === 'GET') {
     if (/^\/api\/web-icons\/[a-f0-9-]{36}$/.test(path)) return imageResponse(env.DB, path.split('/').pop())
     if (path === '/api/sync/v1/capabilities')
@@ -135,6 +135,11 @@ export default {
     }
   },
   async scheduled(event, env) {
+    const now=new Date(event.scheduledTime)
+    if(now.getUTCHours()!==1) {
+      const day=new Date(event.scheduledTime+8*3600000).toISOString().slice(0,10)
+      if(!await env.DB.prepare("SELECT 1 FROM deliveries WHERE day=? AND state!='sent' LIMIT 1").bind(day).first()) return
+    }
     await remind(env, event.scheduledTime)
   },
 }

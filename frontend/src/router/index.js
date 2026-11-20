@@ -13,9 +13,9 @@ const routes = [
       { path: 'subscriptions', component: () => import('../views/Subscriptions.vue') },
       { path: 'calendar', component: () => import('../views/Calendar.vue') },
       { path: 'reports', component: () => import('../views/Reports.vue') },
-      { path: 'notifications', component: import.meta.env.VITE_WORKER_WEB ? () => import('../views/WorkerNotifications.vue') : () => import('../views/Notifications.vue') },
+      { path: 'notifications', component: () => import('../views/Notifications.vue') },
       { path: 'logs', component: () => import('../views/Logs.vue') },
-      { path: 'settings', component: import.meta.env.VITE_WORKER_WEB ? () => import('../views/WorkerSettings.vue') : () => import('../views/Settings.vue') },
+      { path: 'settings', component: () => import('../views/Settings.vue') },
       { path: 'users', component: () => import('../views/Users.vue') }
     ]
   }
