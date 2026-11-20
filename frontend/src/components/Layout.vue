@@ -23,10 +23,6 @@
           <button class="linkish" @click="logout">{{ t('nav.logout') }}</button>
         </div>
       </div>
-      <div class="credit">
-        <a href="https://t.me/Aiden_SU" target="_blank" rel="noopener"><span v-html="icon('send')"></span>@Aiden_SU</a>
-        <a href="mailto:aidensu8182@gmail.com"><span v-html="icon('mail')"></span>aidensu8182@gmail.com</a>
-      </div>
     </aside>
 
     <main class="content">
