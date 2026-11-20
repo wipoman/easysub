@@ -12,13 +12,23 @@ export function createTransport(server, tokens, fetcher = fetch) {
   const controller = new AbortController()
   async function raw(path, options = {}, authenticated = true) {
     const { asBlob, ...init } = options
-    const response = await fetcher(base + path, { ...init, credentials: 'omit', redirect: 'error', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]), headers: { ...(authenticated ? { Authorization: `Bearer ${tokens.access_token}` } : {}), ...options.headers } })
-    const data = response.ok && asBlob ? await response.blob() : await response.json().catch(() => null)
-    if (!response.ok) {
-      const detail = data?.detail
-      throw new SyncError(typeof detail === 'string' ? detail : detail?.message || `服务器请求失败 (${response.status})`, detail?.code, response.status)
+    const operation = new AbortController()
+    const cancel = () => operation.abort()
+    if (controller.signal.aborted) cancel()
+    else controller.signal.addEventListener('abort', cancel)
+    const timer = setTimeout(() => operation.abort(new DOMException('同步请求超时', 'TimeoutError')), 20000)
+    try {
+      const response = await fetcher(base + path, { ...init, credentials: 'omit', redirect: 'error', signal: operation.signal, headers: { ...(authenticated ? { Authorization: `Bearer ${tokens.access_token}` } : {}), ...options.headers } })
+      const data = response.ok && asBlob ? await response.blob() : await response.json().catch(() => null)
+      if (!response.ok) {
+        const detail = data?.detail
+        throw new SyncError(typeof detail === 'string' ? detail : detail?.message || `服务器请求失败 (${response.status})`, detail?.code, response.status)
+      }
+      return data
+    } finally {
+      clearTimeout(timer)
+      controller.signal.removeEventListener('abort', cancel)
     }
-    return data
   }
   let refreshing
   async function request(path, options) {
