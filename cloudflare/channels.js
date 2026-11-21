@@ -27,7 +27,7 @@ export async function deliver(channel,c,env,text,send=fetch,job='',action='') {
     let response
     try {
       response=await send(target.href,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',...headers},
-        body:body===undefined?undefined:JSON.stringify(body),redirect:'error',signal:AbortSignal.timeout(timeout)})
+        body:body===undefined?undefined:JSON.stringify(body),redirect:'manual',signal:AbortSignal.timeout(timeout)})
     } catch { throw new Failure(502,'渠道连接失败或超时') }
     if(!response.ok) throw new Failure(502,'渠道返回 HTTP '+response.status)
     const data=await response.json().catch(()=>({}))

@@ -9,7 +9,16 @@ import { createPreviewStore } from '../frontend/src/android-preview/store.js'
 import { remind } from './reminders.js'
 
 test('original web/Android sync clients, lost response replay, and renewal delivery', async (t) => {
+  const telegramRequests = []
+  let redirectTelegram = false
   const options = {
+    outboundService: async request => {
+      telegramRequests.push(new URL(request.url).pathname)
+      if (redirectTelegram) return Response.redirect('https://redirect.example/', 302)
+      if (request.method === 'GET') return Response.json({ ok: true, result: { username: 'example_bot' } })
+      assert.deepEqual(await request.json(), { chat_id: 'id', text: 'EasySub 测试通知' })
+      return Response.json({ ok: true, result: { message_id: 1 } })
+    },
     modules: true,
     script: (await build({ entryPoints: ['worker.js'], bundle: true, write: false, format: 'esm', target: 'es2022' })).outputFiles[0].text,
     compatibilityDate: '2026-06-01',
@@ -180,6 +189,17 @@ test('original web/Android sync clients, lost response replay, and renewal deliv
   await call('/api/notifications/config','PUT',{config:cfg})
   assert.deepEqual((await api.request('/api/notifications/config')).config,cfg)
   assert.ok(!(await db.prepare('SELECT channels FROM profile').first()).channels.includes(cfg.telegram.bot_token))
+  const verifyBot = () => api.request('/api/notifications/telegram/me')
+  assert.equal((await verifyBot()).result.username, 'example_bot')
+  const sent = await call('/api/notifications/test', 'POST', { channel: 'telegram', config: cfg.telegram })
+  assert.equal(sent.result.message_id, 1)
+  redirectTelegram = true
+  await assert.rejects(verifyBot, /302/)
+  assert.deepEqual(telegramRequests, [
+    '/botmock-secret-for-config/getMe',
+    '/botmock-secret-for-config/sendMessage',
+    '/botmock-secret-for-config/getMe',
+  ])
   await call('/api/me','PATCH',{notify_settings:{quiet_start:'22:00',quiet_end:'06:00',digest_enabled:true,digest_weekday:1}})
   const cal=await api.request('/api/calendar/token')
   assert.match(await (await mf.dispatchFetch(base+cal.path)).text(),/BEGIN:VEVENT/)
