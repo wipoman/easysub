@@ -1,14 +1,58 @@
-// One digest per channel and Beijing calendar day. Persist the original text for
-// stable retries (including Resend's idempotency key) if a provider times out.
 import { config,deliver } from './channels.js'
 import { parseReminderDays } from '../frontend/src/android-preview/reminder-schedule.js'
+// Delivery bodies are immutable once queued so retries keep the same payload.
+async function enqueueNewReminders(db, day, channel, events) {
+  while (events.length) {
+    const { results } = await db.prepare(
+      "SELECT channel, body, item_keys FROM deliveries WHERE day=? AND channel GLOB ? ORDER BY channel",
+    ).bind(day, channel + '-*').all()
+    const seen = new Set()
+    const legacyLines = new Map()
+    let next = 0
+    for (const row of results) {
+      next = Math.max(next, Number(row.channel.slice(channel.length + 1)) + 1)
+      if (row.item_keys) {
+        for (const key of JSON.parse(row.item_keys)) seen.add(key)
+      } else {
+        // Pre-upgrade digests stored only their displayed reminder lines.
+        for (const line of row.body.split('\n').slice(1)) {
+          legacyLines.set(line, (legacyLines.get(line) || 0) + 1)
+        }
+      }
+    }
+    let body = 'EasySub 续费提醒 · ' + day
+    const keys = []
+    let hasMore = false
+    for (const { key, line } of events) {
+      if (seen.has(key)) continue
+      const count = legacyLines.get(line) || 0
+      if (count) {
+        legacyLines.set(line, count - 1)
+        continue
+      }
+      if (body.length + 1 + line.length > 3500) {
+        hasMore = true
+        break
+      }
+      body += '\n' + line
+      keys.push(key)
+    }
+    if (!keys.length) return
+    // Claim the next slot first. If a concurrent scan wins, read its keys
+    // before allocating another slot. Never replace a queued or sent digest.
+    const insert = await db.prepare(
+      "INSERT OR IGNORE INTO deliveries(day,channel,state,lease,body,item_keys) VALUES (?,?,'pending',0,?,?)",
+    ).bind(day, channel + '-' + next, body, JSON.stringify(keys)).run()
+    if (insert.meta.changes && !hasMore) return
+  }
+}
 export async function remind(env, time, send = fetch) {
   const day = new Date(time + 8 * 3600000).toISOString().slice(0, 10)
   const { results } = await env.DB.prepare(
-    "SELECT data FROM current_records WHERE kind='subscriptions' AND deleted=0 ORDER BY id",
+    "SELECT id,data FROM current_records WHERE kind='subscriptions' AND deleted=0 ORDER BY id",
   ).all()
-  const lines = []
-  for (const { data } of results) {
+  const events = []
+  for (const { id, data } of results) {
     const sub = JSON.parse(data)
     const days =
       (Date.parse(sub.next_renewal_date) - Date.parse(day)) / 86400000
@@ -17,13 +61,14 @@ export async function remind(env, time, send = fetch) {
       sub.billing_type === 'recurring' &&
       parseReminderDays(sub.remind_days_before).includes(days)
     )
-      lines.push(
-        String(sub.name).slice(0, 140) +
+      events.push({
+        key: id + '/' + sub.next_renewal_date,
+        line: String(sub.name).slice(0, 140) +
           ' · ' +
           sub.next_renewal_date +
           ' · ' +
           (days === 0 ? '今天到期' : '还有 ' + days + ' 天'),
-      )
+      })
   }
   const cfg=await config(env)
   const channels=Object.keys(cfg).filter(k=>cfg[k]?.enabled)
@@ -36,25 +81,9 @@ export async function remind(env, time, send = fetch) {
   if(settings.digest_enabled && (localTime.getUTCDay()+6)%7===settings.digest_weekday) {
     const upcoming=results.map(r=>JSON.parse(r.data)).filter(s=>s.is_active && s.billing_type==='recurring' && s.next_renewal_date>=day &&
       (Date.parse(s.next_renewal_date)-Date.parse(day))/86400000<7)
-    lines.push('每周汇总 · 未来七天有 '+upcoming.length+' 项到期')
+    events.push({ key: 'weekly', line: '每周汇总 · 未来七天有 '+upcoming.length+' 项到期' })
   }
-  // Bound each message by Telegram's text limit, even with exceptionally long lists.
-  const parts = []
-  for (const line of lines) {
-    if (!parts.length || parts.at(-1).length + line.length > 3500)
-      parts.push('EasySub 续费提醒 · ' + day)
-    parts[parts.length - 1] += '\n' + line
-  }
-  for (const channel of channels) {
-    if (parts.length)
-      await env.DB.batch(
-        parts.map((body, i) =>
-          env.DB.prepare(
-            'INSERT OR IGNORE INTO deliveries(day,channel,state,lease,body) VALUES (?,?,?,0,?)',
-          ).bind(day, channel + '-' + i, 'pending', body),
-        ),
-      )
-  }
+  for (const channel of channels) await enqueueNewReminders(env.DB, day, channel, events)
   const jobs = await env.DB.prepare(
     "SELECT * FROM deliveries WHERE day=? AND state!='sent' AND lease<=? ORDER BY channel LIMIT 12",
   )

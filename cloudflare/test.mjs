@@ -35,7 +35,7 @@ test('original web/Android sync clients, lost response replay, and renewal deliv
   const mf = new runtime.Miniflare(runtime.convertV4MiniflareOptions(options))
   t.after(() => mf.dispose())
   const db = await mf.getD1Database('DB')
-  for (const path of ['0001_sync.sql', '0002_defaults.sql', '0003_desktop_admin.sql','0004_settings.sql']) {
+  for (const path of ['0001_sync.sql', '0002_defaults.sql', '0003_desktop_admin.sql','0004_settings.sql','0005_delivery_item_keys.sql']) {
     const sql = await readFile('migrations/' + path, 'utf8')
     await db.batch(
       sql
@@ -134,6 +134,7 @@ test('original web/Android sync clients, lost response replay, and renewal deliv
   const calls = [],
     env = {
       DB: db,
+      TOKEN_SECRET: options.bindings.TOKEN_SECRET,
       TELEGRAM_BOT_TOKEN: 'test',
       TELEGRAM_CHAT_ID: 'chat',
       RESEND_API_KEY: 'test',
@@ -229,5 +230,31 @@ test('original web/Android sync clients, lost response replay, and renewal deliv
   const changed=await mf.dispatchFetch(base+'/api/me/password',{method:'POST',headers:{Authorization:'Bearer '+session.access_token},body:JSON.stringify({old_password:'local-test-only',new_password:'another-local-password'})})
   assert.equal(changed.status,200)
   assert.equal((await login('another-local-password',code)).status,200)
+
+  // Existing installations may already have sent a digest before the user
+  // enables the due-day reminder on another subscription.
+  const day = '2026-11-21'
+  const scanTime = Date.parse(day + 'T14:00:00Z')
+  const subscription = (name, due, days) => JSON.stringify({
+    name, next_renewal_date: due, remind_days_before: days, billing_type: 'recurring', is_active: true,
+  })
+  const saveSub = (id, version, data) => db.prepare(
+    "INSERT INTO changes(id,kind,version,data) VALUES (?,'subscriptions',?,?)",
+  ).bind(id, version, data).run()
+  await saveSub('prime', 1, subscription('Prime Video', '2026-11-26', '5'))
+  await saveSub('viu', 1, subscription('Viu', day, '7,6,5,4,3,2,1'))
+  await db.prepare("INSERT INTO deliveries(day,channel,state,lease,body) VALUES (?,'telegram-0','sent',0,?)")
+    .bind(day, 'EasySub 续费提醒 · ' + day + '\nPrime Video · 2026-11-26 · 还有 5 天').run()
+  const delivered = []
+  const capture = async (url, init) => {
+    delivered.push(JSON.parse(init.body).text)
+    return Response.json({ ok: true })
+  }
+  await remind(env, scanTime, capture)
+  assert.deepEqual(delivered, [])
+  await saveSub('viu', 2, subscription('Viu', day, '7,6,5,4,3,2,1,0'))
+  await Promise.all([remind(env, scanTime, capture), remind(env, scanTime, capture)])
+  await remind(env, scanTime, capture)
+  assert.deepEqual(delivered, ['EasySub 续费提醒 · ' + day + '\nViu · 2026-11-21 · 今天到期'])
 
 })
