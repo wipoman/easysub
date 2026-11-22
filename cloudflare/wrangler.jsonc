@@ -13,7 +13,7 @@
   {
     "binding": "DB",
     "database_name": "easysub",
-    "database_id": "18b1a0a9-ac80-45f9-a8f7-1e0449945b38",
+    "database_id": "552caee2-7033-4ef7-a01c-77fbcb33810c",
     "migrations_dir": "migrations"
   }
 ],
