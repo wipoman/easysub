@@ -1,5 +1,5 @@
 {
-  "name": "easysub-worker",
+  "name": "easysub",
   "keep_vars": true,
   "main": "worker.js",
   "compatibility_date": "2026-06-01",
