@@ -12,12 +12,7 @@
 
 **中文 | [English](#english) | [Русский](#русский)**
 
-```bash
-docker run -d --name easysub -p 8842:8000 -e EASYSUB_DB=sqlite \
-  -v easysub_data:/app/data --restart unless-stopped suyijun8182/easysub:latest
-```
-
-打开 `http://<服务器IP>:8842`，注册的第一个账号就是管理员。
+[Cloudflare 安装方法](#cloudflare-安装方法) · [其他安装方法](#其他安装方法)
 
 </div>
 
@@ -58,86 +53,64 @@ docker run -d --name easysub -p 8842:8000 -e EASYSUB_DB=sqlite \
 
 ---
 
-## 🚀 安装
+## Cloudflare 安装方法
 
-有四种安装方式，按自己的情况选一种：
+本方法将 EasySub 网页和服务端安装到你自己的 Cloudflare 账号。电脑通过浏览器管理订阅，作者的 Android APK 通过同一地址同步。新建的 D1 从空库开始。已有实例的用户可以先在旧网页导出订阅备份，待新实例可登录后再导入。
 
-| 方式 | 适合 | 数据库 |
-|---|---|---|
-| [A. Docker + SQLite](#a-docker--sqlite推荐) | 大多数个人和家庭用户、NAS | 内置 SQLite，不需要额外安装 |
-| [B. Docker + MySQL](#b-docker--mysql) | 已经有 MySQL，或需要多实例共用数据库 | 你自己的 MySQL 8 |
-| [C. Linux 一键安装](#c-linux-一键安装不需要-docker) | 没有 Docker 的 VPS 或小主机 | 内置 SQLite |
-| [D. 从源码构建](#d-从源码构建自带-caddy-自动-https) | 想自己改代码，或需要自动 HTTPS | 两种都可以 |
+### 1. 用另一个 GitHub 账号 fork
 
-### A. Docker + SQLite（推荐）
+1. 登录准备接收仓库的 GitHub 账号，打开 [wipoman/easysub 的 Fork 页面](https://github.com/wipoman/easysub/fork)。
+2. 在 **Owner** 选择自己的账号，仓库名可保留 `easysub`。**取消勾选 `Copy the main branch only`**，然后点 **Create fork**。Workers 版位于 `cloudflare-workers` 分支。
+3. 打开新仓库，通过左上角分支菜单切到 **`cloudflare-workers`**，确认能看到 `cloudflare/wrangler.jsonc`。后面的修改都提交到自己仓库的这个分支。若之前只复制了 main，可从新仓库的 **Branches** 页面复制上游的 `cloudflare-workers` 分支。
 
-```bash
-docker run -d --name easysub \
-  -p 8842:8000 \
-  -e EASYSUB_DB=sqlite \
-  -e TZ=Asia/Shanghai \
-  -v easysub_data:/app/data \
-  --restart unless-stopped \
-  suyijun8182/easysub:latest
-```
+### 2. 在目标 Cloudflare 账号创建 D1
 
-也可以用仓库里的 compose 文件：
+登录准备用来运行 EasySub 的 Cloudflare 账号，进入 **存储和数据库 → D1 数据库 → 创建数据库**。名称可用 `easysub`，也可以自定义，例如 `easysub-b`。创建后打开数据库的 **概述**，记下实际名称并复制 **Database ID**。
 
-```bash
-docker compose -f docker-compose.sqlite.yml up -d
-```
+### 3. 修改自己 fork 中的 D1 名称和 ID
 
-设置 `EASYSUB_DB=sqlite` 后，首次启动会自动初始化数据库，跳过安装向导。打开 `http://<服务器IP>:8842` 后注册第一个账号，它就是管理员。所有数据都保存在 `easysub_data` 数据卷里，**这个卷一定要保留**。
+在 GitHub 的 **`cloudflare-workers`** 分支打开 **`cloudflare/wrangler.jsonc`**，点铅笔编辑。找到已有的 `d1_databases` 数组，在原条目中修改以下字段：
 
-> 国内拉取镜像慢，可以改用 GHCR：`ghcr.io/suyijun8182/easysub:latest`
+| 字段 | 怎么填 |
+| --- | --- |
+| `database_name` | 填上一步创建的数据库名称。自定义为 `easysub-b` 就填 `"database_name": "easysub-b"`。 |
+| `database_id` | 将仓库中原有的 UUID 替换为**自己新库的 Database ID**。即使新库也叫 `easysub`，仍须替换 ID。 |
+| `binding` | 保留 `"DB"`。Worker 通过这个名称访问数据库，部署命令也使用它。 |
+| `migrations_dir` | 保留 `"migrations"`，首次部署会用该目录的 SQL 建表。 |
 
-### B. Docker + MySQL
+点 **Commit changes**，确认提交到自己 fork 的 **`cloudflare-workers`** 分支。
 
-先准备一个 MySQL 8 和一个空数据库，然后：
+### 4. 从 Cloudflare 控制台部署 Worker
 
-```bash
-docker compose -f docker-compose.hub.yml up -d
-```
+在刚才创建 D1 的同一 Cloudflare 账号中，进入 **Workers 和 Pages → 创建应用程序**，选择 **Worker** 并连接 GitHub。授权访问自己的 fork，选择 **你的 GitHub 用户名/easysub**，填写以下配置：
 
-打开 `http://<服务器IP>:8842`，在安装向导中选择“MySQL”，填写连接信息，点“测试”，再点“保存并初始化”，然后注册管理员。
+| 控制台字段 | 填写内容 |
+| --- | --- |
+| Worker 项目名称 | `easysub-worker`，与 `wrangler.jsonc` 顶层的 `name` 一致 |
+| 生产分支 | `cloudflare-workers` |
+| 根目录（高级设置里的「路径」） | `cloudflare` |
+| 构建命令 | `npm run build` |
+| 部署命令 | `npx wrangler d1 migrations apply DB --remote && npx wrangler deploy` |
+| 构建变量 | `NODE_VERSION` 填 `24` |
 
-> 容器里不能填 `localhost`，要填 MySQL 的实际 IP 或服务名。
+点 **部署**。如果已创建同名 Worker，直接打开它，在 **设置 → 构建** 中连接或管理仓库，核对生产分支、根目录和两条命令。若页面提示等待第一次提交，可在自己的生产分支提交一次文档变更。打开 **部署 → 构建** 查看日志，确认远程 D1 迁移和 Worker 部署均成功。
 
-### C. Linux 一键安装（不需要 Docker）
+### 5. 设置登录参数并验证
 
-```bash
-curl -fsSL https://github.com/suyijun8182/easysub/releases/latest/download/install.sh | sudo bash
-```
+1. 打开 **easysub-worker → 设置 → 运行时变量和密钥**，选择 **生产** 环境，添加下表三项，点 **部署**。这些参数供 Worker 运行时读取，请与上一步的构建变量分开填写。
 
-脚本会自动选择对应架构的程序，校验 SHA256 后安装为 systemd 服务，默认监听 8000 端口。安装完成后，按屏幕上显示的地址打开网页，注册第一个账号。
+   | 名称 | 值 | 类型 |
+   | --- | --- | --- |
+   | `ADMIN_USERNAME` | 自定的 EasySub 登录名 | 文本或密钥 |
+   | `ADMIN_PASSWORD` | 自定的强密码 | 密钥 |
+   | `TOKEN_SECRET` | 用密码管理器生成并保存的随机值，至少 32 个字符 | 密钥 |
 
-- **系统要求**：x86_64 或 aarch64，glibc ≥ 2.17（Debian、Ubuntu、CentOS 7 及更新版本均可）。**不支持 Alpine。**
-- **自定义端口和数据目录**：`curl -fsSL …/install.sh | sudo bash -s -- --port 8842 --data /var/lib/easysub`
-- **升级**：再运行一次安装命令即可，脚本会自动识别已安装的版本。新版本启动失败时会自动退回旧版本。
-- **常用命令**：
+2. 从 Worker 概述页打开 HTTPS 地址，访问 `/login`，用上述账号登录。新建一条测试订阅，刷新后确认仍能看到它。
+3. 若域名也托管在这个 Cloudflare 账号，在 **该 Worker → 设置 → 域和路由 → 添加 → 自定义域** 填主机名，例如 `sub.example.com`。绑定成功后用新地址登录。
+4. 首次配置安卓 APP，在 **设置 → 账号与同步** 填同一个 HTTPS 根地址，测试连接后确认保存并开始同步。已有绑定和本地订阅的手机，切换服务器前先完成旧服务器同步并导出备份。
+5. 在 EasySub 网页的 **设置 → 通知** 中启用所需渠道，保存配置并测试。Telegram 使用 Bot Token 和 Chat ID；邮件使用 Resend API Key、发件人和收件人地址。
 
-  ```bash
-  sudo easysub status             # 查看状态、版本、数据目录
-  sudo easysub uninstall          # 卸载程序，保留数据
-  sudo easysub uninstall --purge  # 连同数据一起删除（需要输入 yes 确认）
-  ```
-
-- **文件位置**：程序在 `/opt/easysub`，数据在 `/var/lib/easysub`，配置在 `/etc/easysub/easysub.env`。修改配置后执行 `sudo systemctl restart easysub`。
-- **没有 systemd 或没有 root 权限**：下载 Release 里的 `easysub-linux-x86_64`（或 `aarch64`），在一个可写目录里运行 `./easysub run`，数据会保存在当前目录下的 `easysub-data/`。
-
-### D. 从源码构建（自带 Caddy 自动 HTTPS）
-
-```bash
-git clone https://github.com/suyijun8182/easysub.git
-cd easysub
-cp .env.example .env   # 可选：设置强 JWT_SECRET、初始管理员等；留空时会自动生成密钥
-vi Caddyfile           # 把 your-domain.com 改成你的域名
-docker compose up -d --build
-```
-
-### 🖥️ NAS
-
-群晖、威联通、飞牛 fnOS、Unraid、TrueNAS 的图形界面安装步骤，见 **[各厂家 NAS 安装教程](./各厂家NAS安装教程.md)**。新安装推荐粘贴 `docker-compose.sqlite.yml` 的内容。
+[Workers 分支部署与同步说明](https://github.com/wipoman/easysub/blob/cloudflare-workers/cloudflare/README.md) · [GitHub Fork 说明](https://docs.github.com/en/pull-requests/how-tos/work-with-forks/fork-a-repo) · [其他安装方法](#其他安装方法)
 
 ---
 
@@ -322,3 +295,97 @@ curl -fsSL https://github.com/suyijun8182/easysub/releases/latest/download/insta
 После открытия страницы зарегистрируйтесь: первая учётная запись получает права администратора. Сохраняйте том данных: в нём же лежит автоматически созданный ключ JWT.
 
 Инструкции для NAS: [各厂家NAS安装教程.md](./各厂家NAS安装教程.md) · Docker Hub: [suyijun8182/easysub](https://hub.docker.com/r/suyijun8182/easysub) · [История изменений](./CHANGELOG.md) · Лицензия MIT · TG [@Aiden_SU](https://t.me/Aiden_SU)
+
+---
+
+<a id="其他安装方法"></a>
+<details>
+<summary><strong>其他安装方法</strong></summary>
+
+```bash
+docker run -d --name easysub -p 8842:8000 -e EASYSUB_DB=sqlite \
+  -v easysub_data:/app/data --restart unless-stopped suyijun8182/easysub:latest
+```
+
+打开 `http://<服务器IP>:8842`，注册的第一个账号就是管理员。
+
+有四种安装方式，按自己的情况选一种：
+
+| 方式 | 适合 | 数据库 |
+|---|---|---|
+| [A. Docker + SQLite](#a-docker--sqlite推荐) | 大多数个人和家庭用户、NAS | 内置 SQLite，不需要额外安装 |
+| [B. Docker + MySQL](#b-docker--mysql) | 已经有 MySQL，或需要多实例共用数据库 | 你自己的 MySQL 8 |
+| [C. Linux 一键安装](#c-linux-一键安装不需要-docker) | 没有 Docker 的 VPS 或小主机 | 内置 SQLite |
+| [D. 从源码构建](#d-从源码构建自带-caddy-自动-https) | 想自己改代码，或需要自动 HTTPS | 两种都可以 |
+
+### A. Docker + SQLite（推荐）
+
+```bash
+docker run -d --name easysub \
+  -p 8842:8000 \
+  -e EASYSUB_DB=sqlite \
+  -e TZ=Asia/Shanghai \
+  -v easysub_data:/app/data \
+  --restart unless-stopped \
+  suyijun8182/easysub:latest
+```
+
+也可以用仓库里的 compose 文件：
+
+```bash
+docker compose -f docker-compose.sqlite.yml up -d
+```
+
+设置 `EASYSUB_DB=sqlite` 后，首次启动会自动初始化数据库，跳过安装向导。打开 `http://<服务器IP>:8842` 后注册第一个账号，它就是管理员。所有数据都保存在 `easysub_data` 数据卷里，**这个卷一定要保留**。
+
+> 国内拉取镜像慢，可以改用 GHCR：`ghcr.io/suyijun8182/easysub:latest`
+
+### B. Docker + MySQL
+
+先准备一个 MySQL 8 和一个空数据库，然后：
+
+```bash
+docker compose -f docker-compose.hub.yml up -d
+```
+
+打开 `http://<服务器IP>:8842`，在安装向导中选择“MySQL”，填写连接信息，点“测试”，再点“保存并初始化”，然后注册管理员。
+
+> 容器里不能填 `localhost`，要填 MySQL 的实际 IP 或服务名。
+
+### C. Linux 一键安装（不需要 Docker）
+
+```bash
+curl -fsSL https://github.com/suyijun8182/easysub/releases/latest/download/install.sh | sudo bash
+```
+
+脚本会自动选择对应架构的程序，校验 SHA256 后安装为 systemd 服务，默认监听 8000 端口。安装完成后，按屏幕上显示的地址打开网页，注册第一个账号。
+
+- **系统要求**：x86_64 或 aarch64，glibc ≥ 2.17（Debian、Ubuntu、CentOS 7 及更新版本均可）。**不支持 Alpine。**
+- **自定义端口和数据目录**：`curl -fsSL …/install.sh | sudo bash -s -- --port 8842 --data /var/lib/easysub`
+- **升级**：再运行一次安装命令即可，脚本会自动识别已安装的版本。新版本启动失败时会自动退回旧版本。
+- **常用命令**：
+
+  ```bash
+  sudo easysub status             # 查看状态、版本、数据目录
+  sudo easysub uninstall          # 卸载程序，保留数据
+  sudo easysub uninstall --purge  # 连同数据一起删除（需要输入 yes 确认）
+  ```
+
+- **文件位置**：程序在 `/opt/easysub`，数据在 `/var/lib/easysub`，配置在 `/etc/easysub/easysub.env`。修改配置后执行 `sudo systemctl restart easysub`。
+- **没有 systemd 或没有 root 权限**：下载 Release 里的 `easysub-linux-x86_64`（或 `aarch64`），在一个可写目录里运行 `./easysub run`，数据会保存在当前目录下的 `easysub-data/`。
+
+### D. 从源码构建（自带 Caddy 自动 HTTPS）
+
+```bash
+git clone https://github.com/suyijun8182/easysub.git
+cd easysub
+cp .env.example .env   # 可选：设置强 JWT_SECRET、初始管理员等；留空时会自动生成密钥
+vi Caddyfile           # 把 your-domain.com 改成你的域名
+docker compose up -d --build
+```
+
+### 🖥️ NAS
+
+群晖、威联通、飞牛 fnOS、Unraid、TrueNAS 的图形界面安装步骤，见 **[各厂家 NAS 安装教程](./各厂家NAS安装教程.md)**。新安装推荐粘贴 `docker-compose.sqlite.yml` 的内容。
+
+</details>
